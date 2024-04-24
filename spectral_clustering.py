@@ -3,6 +3,10 @@ Work with Spectral clustering.
 Do not use global variables!
 """
 
+from numpy.linalg import norm
+from scipy.sparse import csgraph
+from scipy.sparse.linalg import eigsh
+from scipy.spatial.distance import pdist, squareform
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
@@ -12,6 +16,83 @@ import pickle
 #####     CHECK THE PARAMETERS     ########
 ######################################################################
 
+def compute_affinity_matrix(data, sigma):
+    """
+    Computes the affinity matrix for the given data and sigma using the Gaussian (RBF) kernel.
+    """
+    # Calculate the squared Euclidean distances for every pair of points
+    sq_dists = squareform(pdist(data, 'sqeuclidean'))
+
+    # Compute the affinity matrix using the RBF kernel
+    affinity_matrix = np.exp(-sq_dists / (sigma**2))
+
+    return affinity_matrix
+
+def sparsify_affinity_matrix(affinity_matrix, k):
+    """
+    Sparsifies the affinity matrix by keeping only the k-nearest neighbors for each point.
+    """
+    n = affinity_matrix.shape[0]
+    for i in range(n):
+        k_neighbors = np.argsort(affinity_matrix[i])[-(k+1):]
+        for j in range(n):
+            if j not in k_neighbors and i != j:
+                affinity_matrix[i, j] = 0
+    return affinity_matrix
+
+def compute_laplacian(affinity_matrix):
+    """
+    Computes the unnormalized graph Laplacian of the affinity matrix.
+    """
+    degree_matrix = np.diag(affinity_matrix.sum(axis=1))
+    laplacian = degree_matrix - affinity_matrix
+    return laplacian
+
+def compute_sse(data, labels, centroids):
+    sse = 0.0
+    for k in range(centroids.shape[0]):
+        cluster_data = data[labels == k]
+        distances = np.linalg.norm(cluster_data - centroids[k], axis=1)
+        sse += np.sum(distances**2)
+    return sse
+
+def compute_ari(true_labels, computed_labels):
+    # Create a contingency table
+    contingency_matrix = np.zeros((true_labels.max() + 1, computed_labels.max() + 1))
+    for true_label, computed_label in zip(true_labels, computed_labels):
+        contingency_matrix[true_label, computed_label] += 1
+
+    # Sum over rows & columns
+    sum_over_rows = np.sum(contingency_matrix, axis=1)
+    sum_over_cols = np.sum(contingency_matrix, axis=0)
+
+    # Sum over pairs
+    sum_over_pairs = np.sum(contingency_matrix * (contingency_matrix - 1)) / 2
+    sum_over_rows_pairs = np.sum(sum_over_rows * (sum_over_rows - 1)) / 2
+    sum_over_cols_pairs = np.sum(sum_over_cols * (sum_over_cols - 1)) / 2
+
+    # Calculate ARI components
+    total_pairs = np.sum(sum_over_rows * (sum_over_rows - 1)) / 2
+    expected_index = sum_over_rows_pairs * sum_over_cols_pairs / total_pairs
+    max_index = (sum_over_rows_pairs + sum_over_cols_pairs) / 2
+    ari = (sum_over_pairs - expected_index) / (max_index - expected_index)
+
+    return ari
+
+def k_means(data, k, max_iters=100):
+    # Initialize centroids to random points
+    centroids = data[np.random.choice(data.shape[0], k, replace=False)]
+    for _ in range(max_iters):
+        # Assign points to the nearest centroid
+        distances = np.sqrt(((data - centroids[:, np.newaxis])**2).sum(axis=2))
+        nearest_centroids = np.argmin(distances, axis=0)
+        # Recompute centroids
+        new_centroids = np.array([data[nearest_centroids == i].mean(axis=0) for i in range(k)])
+        # Check for convergence
+        if np.all(centroids == new_centroids):
+            break
+        centroids = new_centroids
+    return nearest_centroids, centroids
 
 def spectral(
     data: NDArray[np.floating], labels: NDArray[np.int32], params_dict: dict
@@ -35,10 +116,30 @@ def spectral(
     - eigenvalues: eigenvalues of the Laplacian matrix
     """
 
-    computed_labels: NDArray[np.int32] | None = None
-    SSE: float | None = None
-    ARI: float | None = None
-    eigenvalues: NDArray[np.floating] | None = None
+    sigma = params_dict.get('sigma', 1.0)  
+    k = params_dict.get('k', 5)            
+    n_clusters = 5 
+
+    # Step 1: Compute the affinity matrix
+    affinity_matrix = compute_affinity_matrix(data, sigma)
+
+    # Step 2: Sparsify the affinity matrix
+    affinity_matrix = sparsify_affinity_matrix(affinity_matrix, k)
+
+    # Step 3: Compute the Laplacian matrix
+    laplacian = compute_laplacian(affinity_matrix)
+
+    # Step 4: Compute eigenvalues and eigenvectors
+    eigenvalues, eigenvectors = eigsh(laplacian, k=n_clusters, which='SM', tol=1e-3)
+
+    # Step 5: Perform k-means clustering on the rows of the eigenvectors
+    computed_labels, centroids = k_means(eigenvectors, n_clusters)
+
+    # Step 6: Compute SSE
+    SSE = compute_sse(data, computed_labels, centroids)
+
+    # Step 7: Compute ARI
+    ARI = compute_ari(labels, computed_labels)
 
     return computed_labels, SSE, ARI, eigenvalues
 
