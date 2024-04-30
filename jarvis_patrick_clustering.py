@@ -268,7 +268,6 @@ def jarvis_patrick_clustering():
 
     return answers
 
-jarvis_patrick_clustering_results = jarvis_patrick_clustering()
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     all_answers = jarvis_patrick_clustering()
