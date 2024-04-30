@@ -212,55 +212,73 @@ def jarvis_patrick_clustering():
         answers (dict): A dictionary containing the clustering results.
     """
 
-    answers = {}
-    data = np.load('question1_cluster_data.npy')
-    labels = np.load('question1_cluster_labels.npy')
+    # Load the data
+    data = np.load('question1_cluster_data.npy')  # Adjust the path as needed
+    labels = np.load('question1_cluster_labels.npy')  # Adjust the path as needed
 
-    answers["jarvis_patrick_function"] = jarvis_patrick
+    # Initialize answers dictionary
+    answers = {
+        "jarvis_patrick_function": jarvis_patrick,
+        "cluster parameters": {},
+        "1st group, SSE": {},
+        "cluster scatterplot with largest ARI": None,
+        "cluster scatterplot with smallest SSE": None,
+        "mean_ARIs": 0,
+        "std_ARIs": 0,
+        "mean_SSEs": 0,
+        "std_SSEs": 0
+    }
 
-    # Set up parameter grid for study
-    k_values = np.linspace(3, 8, 6, dtype=int)  # Values for k
-    smin_values = np.linspace(4, 10, 7, dtype=int)  # Values for smin
-    groups = {}
+    # Parameter study setup
+    k_values = np.linspace(3, 8, 6, dtype=int)  # Adjust the range and number as necessary
+    smin_values = np.linspace(4, 10, 7, dtype=int)  # Adjust the range and number as necessary
 
+    # Iterate through all combinations of parameters
     for k in k_values:
         for smin in smin_values:
             params_dict = {'k': k, 'smin': smin}
             computed_labels, sse, ari = jarvis_patrick(data[:1000], labels[:1000], params_dict)
-            groups[(k, smin)] = {'ARI': ari, 'SSE': sse, 'labels': computed_labels}
+            answers["cluster parameters"][(k, smin)] = {"ARI": ari, "SSE": sse}
 
-    answers["cluster parameters"] = groups
+            # Store SSE for the first group separately as specified
+            if k == k_values[0] and smin == smin_values[0]:
+                answers["1st group, SSE"] = {"SSE": sse}
 
-    # Extract best and worst parameters
-    best_params = max(groups.items(), key=lambda x: x[1]['ARI'])[0]
-    worst_params = min(groups.items(), key=lambda x: x[1]['SSE'])[0]
+    # Analyzing results to identify best and worst parameter sets
+    best_ari = max(answers["cluster parameters"], key=lambda x: answers["cluster parameters"][x]["ARI"])
+    worst_sse = min(answers["cluster parameters"], key=lambda x: answers["cluster parameters"][x]["SSE"])
 
-    # Plot for largest ARI
-    best_ari_data = data[:1000][groups[best_params]['labels'] == np.argmax(groups[best_params]['labels'])]
-    plot_ARI = plt.figure()
-    plt.scatter(best_ari_data[:, 0], best_ari_data[:, 1], c='blue')
-    plt.title('Cluster with Largest ARI')
-    plt.xlabel('Feature 1')
-    plt.ylabel('Feature 2')
+    # Extracting ARI and SSE values for plots and statistics
+    ari_values = [v["ARI"] for v in answers["cluster parameters"].values()]
+    sse_values = [v["SSE"] for v in answers["cluster parameters"].values()]
+
+    # Scatter plot for parameters vs ARI
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.scatter([k for k, s in answers["cluster parameters"].keys()], [s for k, s in answers["cluster parameters"].keys()],
+                c=ari_values, cmap='viridis')
+    plt.colorbar(label='ARI')
+    plt.xlabel('k')
+    plt.ylabel('smin')
+    plt.title('ARI across different parameters')
+    plt.grid(True)
+
+    # Scatter plot for parameters vs SSE
+    plt.subplot(1, 2, 2)
+    plt.scatter([k for k, s in answers["cluster parameters"].keys()], [s for k, s in answers["cluster parameters"].keys()],
+                c=sse_values, cmap='viridis')
+    plt.colorbar(label='SSE')
+    plt.xlabel('k')
+    plt.ylabel('smin')
+    plt.title('SSE across different parameters')
     plt.grid(True)
     plt.show()
 
-    # Plot for smallest SSE
-    worst_sse_data = data[:1000][groups[worst_params]['labels'] == np.argmax(groups[worst_params]['labels'])]
-    plot_SSE = plt.figure()
-    plt.scatter(worst_sse_data[:, 0], worst_sse_data[:, 1], c='red')
-    plt.title('Cluster with Smallest SSE')
-    plt.xlabel('Feature 1')
-    plt.ylabel('Feature 2')
-    plt.grid(True)
-    plt.show()
+    # Storing plots in answers dictionary
+    answers["cluster scatterplot with largest ARI"] = plt.scatter(data[:1000, 0], data[:1000, 1], c=computed_labels)
+    answers["cluster scatterplot with smallest SSE"] = plt.scatter(data[:1000, 0], data[:1000, 1], c=computed_labels)
 
-    answers["cluster scatterplot with largest ARI"] = plot_ARI
-    answers["cluster scatterplot with smallest SSE"] = plot_SSE
-
-    # Calculate mean and standard deviation of ARIs and SSEs
-    ari_values = [group['ARI'] for group in groups.values()]
-    sse_values = [group['SSE'] for group in groups.values()]
+    # Calculating mean and standard deviation of ARIs and SSEs
     answers["mean_ARIs"] = np.mean(ari_values)
     answers["std_ARIs"] = np.std(ari_values)
     answers["mean_SSEs"] = np.mean(sse_values)
